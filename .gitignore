@@ -1,4 +1,5 @@
 venv/
 __pycache__/
 *.pyc
- inginx.pem
+ inginx.pem*.pem
+
