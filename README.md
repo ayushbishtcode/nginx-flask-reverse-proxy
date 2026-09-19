@@ -1,5 +1,7 @@
 # 🚀 Nginx Flask Reverse Proxy
 
+Networking & Infrastructure Services
+
 A production-style DevOps project that demonstrates how to deploy a **Flask application behind Nginx** on an **Ubuntu AWS EC2 instance**.
 
 The project focuses on the fundamentals of an application edge layer:
@@ -823,3 +825,600 @@ Nginx
 ```
 
 This architecture provides the foundation for the HTTPS, load balancing, caching, and high-availability work planned in the next weeks.
+
+# 🔐 Week 2 — HTTPS & TLS
+
+Week 2 extends the Week 1 architecture by securing the public
+connection between the client and Nginx.
+
+#📅 Week 2 — HTTPS & TLS
+
+Week 2 secures the public connection between the client and Nginx.
+
+The architecture changed from:
+
+Client
+   |
+   | HTTP :80
+   v
+Nginx
+
+to:
+
+Client
+   |
+   | HTTPS :443
+   v
+Nginx
+🌍 1. DNS
+
+A dedicated subdomain was created:
+
+nginx.mangomansions.in
+
+DNS A record:
+
+nginx.mangomansions.in
+        |
+        v
+52.66.145.89
+
+Verification:
+
+dig +short nginx.mangomansions.in
+
+Expected:
+
+52.66.145.89
+Simple mental model
+
+DNS answers:
+
+"Where is this hostname?"
+
+🏷️ 2. Nginx server_name
+
+Nginx was configured for:
+
+server_name nginx.mangomansions.in;
+
+This tells Nginx which server configuration should handle requests for this hostname.
+
+Important:
+
+server_name nginx.mangomansions.in;
+
+is an Nginx configuration directive, not a Linux command.
+
+🔐 3. Let's Encrypt
+
+Let's Encrypt is the Certificate Authority (CA) that issued the TLS certificate.
+
+The certificate identifies:
+
+nginx.mangomansions.in
+
+Certificate information:
+
+issuer  = Let's Encrypt, CN=YE1
+subject = nginx.mangomansions.in
+
+The CA's role is to issue/sign certificates after domain control has been validated.
+
+🤖 4. Certbot
+
+Certbot is the tool used to communicate with Let's Encrypt and manage the certificate.
+
+Command:
+
+sudo certbot --nginx -d nginx.mangomansions.in
+
+Conceptually:
+
+You
+ |
+ | certbot command
+ v
+Certbot
+ |
+ | ACME
+ v
+Let's Encrypt
+ |
+ | Domain validation
+ |
+ | Certificate issuance
+ v
+Certbot
+ |
+ +---- Install certificate
+ |
+ +---- Configure Nginx
+ |
+ +---- Configure renewal
+
+The certificate files are available under:
+
+/etc/letsencrypt/live/nginx.mangomansions.in/
+
+Important files:
+
+fullchain.pem
+privkey.pem
+Important security rule
+
+Never commit:
+
+privkey.pem
+*.pem
+
+or any private credentials to GitHub.
+
+🔒 5. HTTPS and TLS
+
+HTTPS is HTTP carried over TLS.
+
+TLS provides:
+
+Confidentiality
+
+Others should not be able to read the encrypted traffic.
+
+Integrity
+
+Traffic should not be secretly modified without detection.
+
+Authentication
+
+The certificate helps establish that the server is the legitimate server for the requested domain.
+
+The external connection is:
+
+Browser
+   |
+   | HTTPS 🔒
+   v
+Nginx
+🔐 6. TLS Termination
+
+Nginx terminates TLS.
+
+Browser
+   |
+   | HTTPS
+   | encrypted
+   v
+Nginx
+   |
+   | HTTP
+   | localhost
+   v
+Flask
+
+Nginx receives the encrypted HTTPS connection, handles TLS, and then proxies the request to Flask.
+
+This is called:
+
+TLS termination at Nginx
+
+↪️ 7. HTTP → HTTPS Redirect
+
+HTTP requests arrive at:
+
+TCP :80
+
+Nginx returns a redirect such as:
+
+HTTP/1.1 301 Moved Permanently
+Location: https://nginx.mangomansions.in/
+
+For example, if a user requests:
+
+http://nginx.mangomansions.in/api/users
+
+the flow is:
+
+Browser
+   |
+   | HTTP :80
+   v
+Nginx
+   |
+   | 301 Moved Permanently
+   | Location: https://...
+   v
+Browser
+   |
+   | NEW HTTPS :443 request
+   v
+Nginx
+   |
+   | proxy_pass
+   v
+Flask
+Important concept
+
+Nginx does not physically move the browser to HTTPS.
+
+Nginx sends a 301 response telling the browser where to go.
+
+The browser then makes a new HTTPS request.
+
+🚀 8. HTTP/2
+
+HTTP/2 is a newer HTTP protocol version that can improve connection efficiency.
+
+Nginx was configured to support HTTP/2 on port 443.
+
+Test:
+
+curl -I --http2 https://nginx.mangomansions.in
+
+Result:
+
+HTTP/2 200
+🤝 9. ALPN
+
+ALPN stands for:
+
+Application-Layer Protocol Negotiation
+
+During the TLS handshake, the browser and Nginx negotiate the application protocol.
+
+Conceptually:
+
+Browser
+   |
+   | Supports:
+   | h2
+   | http/1.1
+   v
+Nginx
+   |
+   | Selects:
+   | h2
+   v
+HTTP/2 connection
+
+Important distinction:
+
+TLS
+ |
+ +-- Provides secure connection
+ |
+ +-- During handshake:
+       ALPN negotiates application protocol
+                    |
+                    v
+                  HTTP/2
+
+ALPN does not encrypt HTTP/2. TLS provides the secure channel.
+
+🛡️ 10. HSTS
+
+HSTS = HTTP Strict Transport Security.
+
+Configured:
+
+add_header Strict-Transport-Security "max-age=31536000" always;
+
+The browser receives:
+
+Strict-Transport-Security: max-age=31536000
+
+31536000 seconds is approximately one year.
+
+This tells a browser that has learned the policy to use HTTPS for the domain during the policy lifetime.
+
+Verify:
+
+curl -I https://nginx.mangomansions.in
+
+Expected:
+
+strict-transport-security: max-age=31536000
+HSTS and Nginx
+
+HSTS is sent as an HTTP response header by Nginx:
+
+Nginx
+  |
+  | Strict-Transport-Security header
+  v
+Browser
+
+It is not a separate network protocol.
+
+🔒 11. TLS Version Hardening
+
+Nginx was configured to allow:
+
+ssl_protocols TLSv1.2 TLSv1.3;
+
+Expected behavior:
+
+TLS 1.0 → ❌ rejected
+TLS 1.1 → ❌ rejected
+TLS 1.2 → ✅ accepted
+TLS 1.3 → ✅ accepted
+Test TLS 1.2
+openssl s_client \
+  -connect nginx.mangomansions.in:443 \
+  -servername nginx.mangomansions.in \
+  -tls1_2
+Test TLS 1.0
+openssl s_client \
+  -connect nginx.mangomansions.in:443 \
+  -servername nginx.mangomansions.in \
+  -tls1
+
+TLS 1.0 and 1.1 handshake attempts failed, while TLS 1.2 and TLS 1.3 succeeded.
+
+DevOps lesson
+
+Changing configuration is not proof that the system works.
+
+The process is:
+
+Configure
+   ↓
+Test
+   ↓
+Observe actual behavior
+   ↓
+Confirm
+🔎 12. Certificate Validation with OpenSSL
+Issuer and Subject
+
+Command:
+
+sudo openssl x509 \
+  -in /etc/letsencrypt/live/nginx.mangomansions.in/cert.pem \
+  -noout \
+  -issuer \
+  -subject
+Breaking down the command
+openssl
+
+Uses the OpenSSL toolkit.
+
+x509
+
+Tells OpenSSL that we are working with an X.509 certificate.
+
+-in
+
+Specifies the certificate file to read.
+
+-in /etc/letsencrypt/live/nginx.mangomansions.in/cert.pem
+-noout
+
+Prevents OpenSSL from printing the entire certificate.
+
+-issuer
+
+Shows who issued the certificate.
+
+-subject
+
+Shows who the certificate represents.
+
+Result:
+
+issuer=Let's Encrypt, CN=YE1
+subject=CN=nginx.mangomansions.in
+🏷️ 13. Subject Alternative Name (SAN)
+
+Command:
+
+sudo openssl x509 \
+  -in /etc/letsencrypt/live/nginx.mangomansions.in/cert.pem \
+  -noout \
+  -ext subjectAltName
+What this command means
+
+Read the X.509 certificate and show the Subject Alternative Name extension.
+
+Result:
+
+X509v3 Subject Alternative Name:
+    DNS:nginx.mangomansions.in
+
+This confirms that the certificate covers:
+
+nginx.mangomansions.in
+
+The SAN is an important part of hostname certificate validation.
+
+🔄 14. Certificate Renewal
+
+Certbot configured automatic renewal.
+
+A dry-run renewal test was attempted:
+
+sudo certbot renew --dry-run
+
+The test encountered a temporary Let's Encrypt ACME rate/service limit:
+
+rateLimited
+Service busy; retry later
+
+This did not invalidate the currently installed certificate.
+
+The installed certificate was valid until:
+
+2026-12-15
+
+Certbot has a scheduled renewal mechanism.
+
+🔍 15. OCSP Investigation
+
+OCSP stands for:
+
+Online Certificate Status Protocol
+
+It is related to checking certificate status/revocation.
+
+We checked whether the certificate contains an OCSP responder URI:
+
+sudo openssl x509 \
+  -in /etc/letsencrypt/live/nginx.mangomansions.in/cert.pem \
+  -noout \
+  -ocsp_uri
+
+No OCSP URI was returned.
+
+The certificate's Authority Information Access contained:
+
+CA Issuers - URI:http://ye1.i.lencr.org/
+
+This is a CA Issuers URI, not an OCSP responder URI.
+
+We also checked Nginx:
+
+sudo nginx -T | grep -E \
+"ssl_trusted_certificate|ssl_stapling|ssl_stapling_verify"
+
+No matching stapling configuration was present.
+
+Therefore, OCSP stapling was not blindly enabled for this certificate.
+
+🌐 16. Final External HTTPS Validation
+
+The final validation was performed from the Mac, representing an external client.
+
+HTTPS
+curl -I https://nginx.mangomansions.in
+
+Result:
+
+HTTP/2 200
+server: nginx/1.24.0 (Ubuntu)
+strict-transport-security: max-age=31536000
+HTTP/2
+curl -I --http2 https://nginx.mangomansions.in
+
+Result:
+
+HTTP/2 200
+server: nginx/1.24.0 (Ubuntu)
+strict-transport-security: max-age=31536000
+
+This confirmed that the public HTTPS path works from outside the EC2 instance.
+
+📊 Week 2 Status
+Feature	Status
+DNS A record	✅
+Let's Encrypt certificate	✅
+Certbot	✅
+HTTPS :443	✅
+HTTP → HTTPS redirect	✅
+TLS termination	✅
+HTTP/2	✅
+ALPN / HTTP/2 negotiation	✅
+HSTS	✅
+TLS 1.2	✅
+TLS 1.3	✅
+TLS 1.0 rejected	✅
+TLS 1.1 rejected	✅
+Certificate SAN	✅
+External HTTPS testing	✅
+Automatic renewal configuration	✅
+OCSP investigation	✅
+🧠 Week 2 Mental Model
+                    INTERNET
+                       |
+             nginx.mangomansions.in
+                       |
+                      DNS
+                       |
+                 52.66.145.89
+                       |
+            +----------+----------+
+            |                     |
+        HTTP :80              HTTPS :443
+            |                     |
+            v                     v
+         Nginx                  Nginx
+            |                     |
+       301 redirect          TLS handshake
+            |                Certificate
+            v                     |
+         Browser                ALPN
+                                  |
+                               HTTP/2
+                                  |
+                                  v
+                           TLS termination
+                                  |
+                                  | HTTP
+                                  v
+                            Flask :5007
+🔑 Week 2 Key Concepts
+DNS
+→ Where is my server?
+
+Certificate
+→ Which domain does this certificate represent?
+
+Let's Encrypt
+→ Certificate Authority that issues the certificate.
+
+Certbot
+→ Tool that communicates with Let's Encrypt and manages the certificate.
+
+TLS
+→ Provides secure communication.
+
+HTTPS
+→ HTTP over TLS.
+
+TLS termination
+→ Nginx handles the external TLS connection.
+
+HTTP/2
+→ HTTP protocol version used after negotiation.
+
+ALPN
+→ Negotiates the application protocol during TLS.
+
+HSTS
+→ Tells a browser to use HTTPS for the domain.
+
+OCSP
+→ Certificate status/revocation mechanism.
+🔐 Security Rules
+
+Never commit:
+
+*.pem
+privkey.pem
+*.key
+.env
+AWS credentials
+API keys
+passwords
+
+The EC2 private key must remain local.
+
+📁 Project Structure
+nginx-flask-reverse-proxy/
+│
+├── app/
+│   ├── app.py
+│   └── requirements.txt
+│
+├── nginx/
+│   └── nginx.conf
+│
+├── scripts/
+│   └── setup.sh
+│
+├── static/
+│   └── index.html
+│
+├── tests/
+│   └── test_routes.sh
+│
+├── .gitignore
+└── README.md
