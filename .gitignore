@@ -2,3 +2,5 @@ venv/
 __pycache__/
 *.pyc
 *.pem
+app/venv/
+app/__pycache__/
