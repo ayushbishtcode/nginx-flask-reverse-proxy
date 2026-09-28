@@ -1212,3 +1212,4 @@ Nginx Week 4
 Nginx Week 5
 Nginx Week 6
 >>>>>>> 2d5d417 (added week 6 documentation)
+Nginx Week 7
